@@ -54,8 +54,6 @@ func ignoreExtension(path string) bool {
 /* TODO: establish baseline request for "/..;/" payload to prevent legitimate 200 response from providing false positive */
 func tryNormalize(endpoint string, task Task) {
 	u, _ := url.Parse(endpoint)
-	ext := filepath.Ext(u.Path)
-	fmt.Printf("Extension: %s\n", ext)
 	levels := strings.Count(u.Path, "/")
 	attemptUrl := endpoint + ";/" + strings.Repeat("../", levels) + strings.TrimPrefix(u.Path, "/")
 	if fetch(attemptUrl, task) == 404 {
