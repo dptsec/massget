@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -29,14 +30,45 @@ type Task struct {
 	Header            string
 	Timeout           int
 	PathNormalization bool
+	IgnoreExt         bool
 }
 
 var defaultHeaders = []string{"Content-Type", "Server", "X-Powered-By", "Location"}
+var ignoreExtensions = []string{"jpg", "jpeg", "gif", "bmp", "tiff", "ttf", "tif", "ico", "svg", "png", "woff", "woff2", "mp3", "mp4", "mpg", "css", "txt"}
 
 func init() {
 	rand.Seed(time.Now().UnixNano())
 }
 
+func ignoreExtension(path string) bool {
+	u, _ := url.Parse(path)
+	ext := filepath.Ext(u.Path)
+	for _, v := range ignoreExtensions {
+		if strings.Contains(ext, v) {
+			return true
+		}
+	}
+	return false
+}
+
+/* TODO: establish baseline request for "/..;/" payload to prevent legitimate 200 response from providing false positive */
+func tryNormalize(endpoint string, task Task) {
+	u, _ := url.Parse(endpoint)
+	ext := filepath.Ext(u.Path)
+	fmt.Printf("Extension: %s\n", ext)
+	levels := strings.Count(u.Path, "/")
+	attemptUrl := endpoint + ";/" + strings.Repeat("../", levels) + strings.TrimPrefix(u.Path, "/")
+	if fetch(attemptUrl, task) == 404 {
+		fmt.Printf("[*] Potential hit: %s\n", attemptUrl)
+	}
+
+	/*
+		attemptUrl = endpoint + "/..;/"
+		if fetch(attemptUrl, task) == 200 {
+			fmt.Printf("[*] Potential hit: %s\n", attemptUrl)
+		}
+	*/
+}
 func randomPath() string {
 	const possible = "abcdefghijklmnopqrstuvwxyz0123456789"
 
@@ -155,6 +187,7 @@ func main() {
 	flag.BoolVar(&probe, "p", false, "Use httprobe mode")
 	flag.BoolVar(&task.FindFuzz, "fz", false, "Find fuzzing targets (403/redirect on root, 404/200 on /random_file)")
 	flag.BoolVar(&task.PathNormalization, "P", false, "Check for path normalization issues")
+	flag.BoolVar(&task.IgnoreExt, "I", true, "Ignore common file extensions")
 	flag.Parse()
 
 	timeout := time.Duration(task.Timeout) * time.Second
@@ -210,27 +243,13 @@ func main() {
 			if !strings.HasPrefix(current, "http://") && !strings.HasPrefix(current, "https://") {
 				current = "https://" + current
 			}
+			if task.IgnoreExt && ignoreExtension(current) {
+				continue
+			}
 			tasks <- current
 		}
 	}
 
 	close(tasks)
 	wg.Wait()
-}
-
-/* TODO: establish baseline request for "/..;/" payload to prevent legitimate 200 response from providing false positive */
-func tryNormalize(endpoint string, task Task) {
-	u, _ := url.Parse(endpoint)
-	levels := strings.Count(u.Path, "/")
-	attemptUrl := endpoint + ";/" + strings.Repeat("../", levels) + strings.TrimPrefix(u.Path, "/")
-	if fetch(attemptUrl, task) == 404 {
-		fmt.Printf("[*] Potential hit: %s\n", attemptUrl)
-	}
-
-	/*
-		attemptUrl = endpoint + "/..;/"
-		if fetch(attemptUrl, task) == 200 {
-			fmt.Printf("[*] Potential hit: %s\n", attemptUrl)
-		}
-	*/
 }
