@@ -31,6 +31,7 @@ type Task struct {
 	Timeout           int
 	PathNormalization bool
 	IgnoreExt         bool
+        FileList        string
 }
 
 var defaultHeaders = []string{"Content-Type", "Server", "X-Powered-By", "Location"}
@@ -157,8 +158,8 @@ func fetch(host string, task Task) int {
 		}
 	}(resp.Body)
 
-	/* some edge case where this gets hung up forever negotiating a websocket and does not seem to be affected by the context deadline or other timeouts */
-	if matchCodes(task.MatchCode, resp.Status) && resp.StatusCode != 101 && !task.FindFuzz {
+        /* just return the status code if we're using any special scan modes */
+	if matchCodes(task.MatchCode, resp.Status) && resp.StatusCode != http.StatusSwitchingProtocols && !task.FindFuzz && !task.PathNormalization {
 		bodyBytes, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			fmt.Printf("[-] Error: %v\n", err)
@@ -181,11 +182,12 @@ func main() {
 	flag.IntVar(&task.Timeout, "t", 5, "Timeout (seconds)")
 	flag.StringVar(&task.MatchCode, "mc", "all", "Return only URL's matching HTTP response code")
 	flag.StringVar(&task.Header, "H", "", "Host header")
+        flag.StringVar(&task.FileList, "F", "", "File containing paths to grab")
 	flag.BoolVar(&task.FollowRedirect, "f", false, "Follow redirects")
 	flag.BoolVar(&probe, "p", false, "Use httprobe mode")
 	flag.BoolVar(&task.FindFuzz, "fz", false, "Find fuzzing targets (403/redirect on root, 404/200 on /random_file)")
 	flag.BoolVar(&task.PathNormalization, "P", false, "Check for path normalization issues")
-	flag.BoolVar(&task.IgnoreExt, "I", true, "Ignore common file extensions")
+	flag.BoolVar(&task.IgnoreExt, "I", false, "Ignore common file extensions")
 	flag.Parse()
 
 	timeout := time.Duration(task.Timeout) * time.Second
@@ -245,6 +247,20 @@ func main() {
 				continue
 			}
 			tasks <- current
+                        if task.FileList != "" {
+                                file, err := os.Open(task.FileList)
+                                if err != nil {
+                                        fmt.Printf("[!] Unable to open file %s. Skipping.\n", task.FileList)
+                                        task.FileList = ""
+                                        break
+                                }
+
+                                defer file.Close()
+                                fileInput := bufio.NewScanner(file)
+                                for fileInput.Scan() {
+                                        tasks <- current + fileInput.Text()
+                                }
+                        }
 		}
 	}
 
