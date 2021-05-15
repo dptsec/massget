@@ -252,7 +252,7 @@ func main() {
                                 if err != nil {
                                         fmt.Printf("[!] Unable to open file %s. Skipping.\n", task.FileList)
                                         task.FileList = ""
-                                        break
+                                        continue
                                 }
 
                                 defer file.Close()
